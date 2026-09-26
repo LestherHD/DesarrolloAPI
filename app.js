@@ -1,6 +1,6 @@
 const API_URL = "https://back-semprivado-umg-h6fkf2bng2avgrgw.westus3-01.azurewebsites.net/api";
 
-// Reglas de negocio (Serie I)
+// Reglas de validación (Serie I)
 const REGEX_CARNE = /^\d{4}-\d{2}-\d{5}$/;
 const REGEX_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const REGEX_PIN = /^\d+$/;
@@ -9,6 +9,16 @@ const REGEX_PIN = /^\d+$/;
 let usuarioActivo = JSON.parse(localStorage.getItem("usuarioSession")) || null;
 let catalogoVideos = [];
 let videoActualId = null;
+
+// Conversor de enlace normal de YouTube a formato incrustable (embed)
+function formatearUrlYouTube(url) {
+    if (!url) return "";
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) 
+        ? `https://www.youtube.com/embed/${match[2]}` 
+        : url;
+}
 
 document.addEventListener("DOMContentLoaded", () => {
     actualizarInterfazUsuario();
@@ -22,6 +32,13 @@ document.addEventListener("DOMContentLoaded", () => {
     // Formularios (Serie I)
     document.getElementById("formRegistro").addEventListener("submit", registrarEstudiante);
     document.getElementById("formLogin").addEventListener("submit", iniciarSesion);
+
+    // Detener reproducción al cerrar el modal
+    const videoModalEl = document.getElementById("videoModal");
+    videoModalEl.addEventListener("hidden.bs.modal", () => {
+        const iframe = document.getElementById("videoIframe");
+        if (iframe) iframe.src = "";
+    });
 });
 
 // ==========================================
@@ -31,7 +48,6 @@ document.addEventListener("DOMContentLoaded", () => {
 function actualizarInterfazUsuario() {
     const authContainer = document.getElementById("authContainer");
     if (usuarioActivo) {
-        // Mostramos el nombre o carné guardado
         const identificador = usuarioActivo.carne || usuarioActivo.estudiante || usuarioActivo.correo || "Estudiante";
         authContainer.innerHTML = `
             <span class="text-light small">Sesión: <b class="text-info">${identificador}</b></span>
@@ -90,7 +106,6 @@ async function iniciarSesion(e) {
         if (respuesta.ok) {
             const data = await respuesta.json();
             
-            // Forzar la validación del carné para asegurar interacciones (Serie III)
             let carneFinal = data.carne || data.carnet || (REGEX_CARNE.test(usuario) ? usuario : null);
 
             if (!carneFinal) {
@@ -224,14 +239,11 @@ async function cargarDetalleVideo(id) {
         document.getElementById("videoCategory").innerText = video.categoria || "General";
         document.getElementById("videoDescription").innerText = video.descripcion || "";
         
-        const player = document.getElementById("videoPlayer");
-        // Reparado el error de sintaxis y forzado de recarga
-        const videoSrc = (video.url && video.url.startsWith("http")) 
-            ? video.url 
-            : "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
-
-        player.src = videoSrc;
-        player.load(); 
+        // Inyectar el video de YouTube en el iframe
+        const iframe = document.getElementById("videoIframe");
+        if (iframe) {
+            iframe.src = formatearUrlYouTube(video.url);
+        }
         
         // Control de acceso visual
         const btnLike = document.getElementById("btnLike");
@@ -270,7 +282,7 @@ async function toggleLike() {
         if (respuesta.ok) {
             cargarDetalleVideo(videoActualId);
         } else {
-            alert(`Error del servidor (Status ${respuesta.status}). Revisa que el carné cumpla la máscara 9999-99-99999.`);
+            alert(`Error del servidor (Status ${respuesta.status}).`);
         }
     } catch (error) {
         console.error("Error de red en like:", error);
@@ -321,7 +333,7 @@ function renderizarComentarios(comentarios) {
                 <p class="mb-1 small text-light">${com.texto}</p>
                 <div id="cajaResp_${idCom}" class="mt-2"></div>
                 
-                <!-- Hilos Anidados -->
+                <!-- Hilos Anidados (1er nivel) -->
                 <div class="reply-box mt-2">
                     ${(com.respuestas || []).map(resp => {
                         const idResp = resp.id || resp._id;
