@@ -16,6 +16,17 @@ function formatearUrlYouTube(url) {
     return (match && match[2].length === 11) ? `https://www.youtube.com/embed/${match[2]}` : url;
 }
 
+function obtenerTipoVideo(url) {
+    const extension = url.split(/[?#]/)[0].split(".").pop().toLowerCase();
+    const tipos = {
+        mp4: "video/mp4",
+        webm: "video/webm",
+        ogg: "video/ogg",
+        ogv: "video/ogg"
+    };
+    return tipos[extension] || "";
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     actualizarInterfazUsuario();
     obtenerCategorias();
@@ -211,25 +222,32 @@ async function cargarDetalleVideo(id) {
     try {
         const respuesta = await fetch(`${API_URL}/videos/${id}`);
         const video = await respuesta.json();
+        
+        console.log("Datos del video recibidos:", video);
 
         document.getElementById("videoTitle").innerText = video.titulo || "Video";
         document.getElementById("videoCategory").innerText = video.categoria || "General";
         document.getElementById("videoDescription").innerText = video.descripcion || "";
-        
-        // RENDERIZADO DINÁMICO DEL VIDEO
+
+        // Busca el enlace en cualquiera de los nombres comunes que usa la API
+        const videoUrl = video.url || video.urlVideo || video.videoUrl || video.enlace || video.link || "";
         const container = document.getElementById("videoMediaContainer");
-        const url = video.url || "";
-        
-        if (url.includes("youtube.com") || url.includes("youtu.be")) {
-            const embedUrl = formatearUrlYouTube(url);
-            container.innerHTML = `<iframe src="${embedUrl}?autoplay=1" title="Reproductor" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" class="w-100 h-100 border-0"></iframe>`;
+
+        if (!videoUrl) {
+            container.innerHTML = `<div class="d-flex align-items-center justify-content-center h-100 text-muted">No hay URL de video disponible.</div>`;
+        } else if (videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be")) {
+            const embedUrl = formatearUrlYouTube(videoUrl);
+            const separador = embedUrl.includes("?") ? "&" : "?";
+            container.innerHTML = `<iframe src="${embedUrl}${separador}autoplay=1" title="Reproductor de ${video.titulo || "video"}" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" class="w-100 h-100 border-0"></iframe>`;
         } else {
-            container.innerHTML = `<video controls autoplay class="w-100 h-100"><source src="${url}" type="video/mp4">Tu navegador no soporta el formato de video.</video>`;
+            const tipoVideo = obtenerTipoVideo(videoUrl);
+            const atributoTipo = tipoVideo ? ` type="${tipoVideo}"` : "";
+            container.innerHTML = `<video controls autoplay playsinline preload="metadata" class="w-100 h-100" onerror="mostrarErrorVideo()"><source src="${videoUrl}"${atributoTipo}>Tu navegador no puede reproducir este formato de video.</video>`;
         }
-        
+
         const btnLike = document.getElementById("btnLike");
         document.getElementById("likeCount").innerText = video.likes || 0;
-        
+
         if (usuarioActivo && usuarioActivo.carne) {
             btnLike.disabled = false;
             btnLike.classList.remove("opacity-50");
@@ -242,6 +260,11 @@ async function cargarDetalleVideo(id) {
     } catch (error) {
         console.error("Error al obtener detalle del video:", error);
     }
+}
+
+function mostrarErrorVideo() {
+    const container = document.getElementById("videoMediaContainer");
+    container.innerHTML = `<div class="d-flex align-items-center justify-content-center h-100 text-muted text-center px-3">No se pudo cargar este video. Comprueba que la URL siga disponible.</div>`;
 }
 
 async function toggleLike() {
