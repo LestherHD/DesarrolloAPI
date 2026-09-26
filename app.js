@@ -8,22 +8,21 @@ let usuarioActivo = JSON.parse(localStorage.getItem("usuarioSession")) || null;
 let catalogoVideos = [];
 let videoActualId = null;
 
-// Convertidor de URL de YouTube
+// Convertidor robusto de YouTube
 function formatearUrlYouTube(url) {
     if (!url) return "";
+    // Soporte si el profesor guardó únicamente el ID (11 caracteres)
+    if (url.length === 11 && !url.includes("http")) return `https://www.youtube.com/embed/${url}`;
+    
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
     const match = url.match(regExp);
     return (match && match[2].length === 11) ? `https://www.youtube.com/embed/${match[2]}` : url;
 }
 
 function obtenerTipoVideo(url) {
+    if (!url) return "";
     const extension = url.split(/[?#]/)[0].split(".").pop().toLowerCase();
-    const tipos = {
-        mp4: "video/mp4",
-        webm: "video/webm",
-        ogg: "video/ogg",
-        ogv: "video/ogg"
-    };
+    const tipos = { mp4: "video/mp4", webm: "video/webm", ogg: "video/ogg", ogv: "video/ogg" };
     return tipos[extension] || "";
 }
 
@@ -37,7 +36,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("formRegistro").addEventListener("submit", registrarEstudiante);
     document.getElementById("formLogin").addEventListener("submit", iniciarSesion);
 
-    // Apagar el video dinámicamente al cerrar
+    // Apagar el video al cerrar el modal para que no siga sonando
     document.getElementById("videoModal").addEventListener("hidden.bs.modal", () => {
         document.getElementById("videoMediaContainer").innerHTML = ""; 
     });
@@ -103,14 +102,11 @@ async function iniciarSesion(e) {
 
         if (respuesta.ok) {
             let data = {};
-            // Try/Catch por si el backend no devuelve un JSON válido
             try { data = await respuesta.json(); } catch(err) {} 
             
             let carneFinal = data.carne || data.carnet || (REGEX_CARNE.test(usuario) ? usuario : null);
 
-            if (!carneFinal) {
-                carneFinal = prompt("Ingresa tu carné para asociar tus interacciones (ej: 1890-20-11489):");
-            }
+            if (!carneFinal) carneFinal = prompt("Ingresa tu carné para asociar tus interacciones (ej: 1890-20-11489):");
 
             usuarioActivo = { carne: carneFinal, nombre: data.estudiante || carneFinal };
             localStorage.setItem("usuarioSession", JSON.stringify(usuarioActivo));
@@ -190,11 +186,14 @@ function renderizarGrid(videos) {
     }
 
     videos.forEach(video => {
-        const posterUrl = video.poster || 'https://via.placeholder.com/400x225/1A2330/ffffff?text=Video+Educativo';
+        // EXTRACCIÓN BLINDADA DEL ID: Soporta _id, videoId, id_video
+        const idVideo = video.id || video._id || video.videoId || video.idVideo || video.id_video;
+        const posterUrl = video.poster || video.imagen || 'https://via.placeholder.com/400x225/1A2330/ffffff?text=Video+Educativo';
+        
         grid.innerHTML += `
             <div class="col-12 col-md-6 col-lg-4">
-                <div class="card h-100 shadow-sm" style="cursor: pointer;" onclick="abrirModal('${video.id}')">
-                    <img src="${posterUrl}" class="card-img-top video-thumbnail">
+                <div class="card h-100 shadow-sm" style="cursor: pointer;" onclick="abrirModal('${idVideo}')">
+                    <img src="${posterUrl}" class="card-img-top video-thumbnail" alt="Poster del video">
                     <div class="card-body d-flex flex-column justify-content-between">
                         <div>
                             <h6 class="card-title text-light mb-1">${video.titulo}</h6>
@@ -212,6 +211,7 @@ function renderizarGrid(videos) {
 }
 
 function abrirModal(id) {
+    if (id === 'undefined') return alert('Error: El video no tiene un ID válido asignado en la base de datos.');
     videoActualId = id;
     cargarDetalleVideo(id);
     const modal = bootstrap.Modal.getInstance(document.getElementById("videoModal")) || new bootstrap.Modal(document.getElementById("videoModal"));
@@ -222,27 +222,25 @@ async function cargarDetalleVideo(id) {
     try {
         const respuesta = await fetch(`${API_URL}/videos/${id}`);
         const video = await respuesta.json();
-        
-        console.log("Datos del video recibidos:", video);
 
         document.getElementById("videoTitle").innerText = video.titulo || "Video";
         document.getElementById("videoCategory").innerText = video.categoria || "General";
         document.getElementById("videoDescription").innerText = video.descripcion || "";
 
-        // Busca el enlace en cualquiera de los nombres comunes que usa la API
-        const videoUrl = video.url || video.urlVideo || video.videoUrl || video.enlace || video.link || "";
+        // Extracción exhaustiva para atrapar la URL sin importar cómo la llame la API
+        const videoUrl = video.url || video.urlVideo || video.videoUrl || video.url_video || video.enlace || video.link || video.src || "";
         const container = document.getElementById("videoMediaContainer");
 
         if (!videoUrl) {
-            container.innerHTML = `<div class="d-flex align-items-center justify-content-center h-100 text-muted">No hay URL de video disponible.</div>`;
-        } else if (videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be")) {
+            container.innerHTML = `<div class="d-flex align-items-center justify-content-center h-100 text-muted">No hay URL de video disponible en los datos.</div>`;
+        } else if (videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be") || videoUrl.length === 11) {
             const embedUrl = formatearUrlYouTube(videoUrl);
             const separador = embedUrl.includes("?") ? "&" : "?";
-            container.innerHTML = `<iframe src="${embedUrl}${separador}autoplay=1" title="Reproductor de ${video.titulo || "video"}" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" class="w-100 h-100 border-0"></iframe>`;
+            container.innerHTML = `<iframe src="${embedUrl}${separador}autoplay=1" title="Reproductor" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" class="w-100 h-100 border-0"></iframe>`;
         } else {
             const tipoVideo = obtenerTipoVideo(videoUrl);
             const atributoTipo = tipoVideo ? ` type="${tipoVideo}"` : "";
-            container.innerHTML = `<video controls autoplay playsinline preload="metadata" class="w-100 h-100" onerror="mostrarErrorVideo()"><source src="${videoUrl}"${atributoTipo}>Tu navegador no puede reproducir este formato de video.</video>`;
+            container.innerHTML = `<video controls autoplay playsinline class="w-100 h-100" onerror="mostrarErrorVideo()"><source src="${videoUrl}"${atributoTipo}>Tu navegador no puede reproducir este formato de video.</video>`;
         }
 
         const btnLike = document.getElementById("btnLike");
